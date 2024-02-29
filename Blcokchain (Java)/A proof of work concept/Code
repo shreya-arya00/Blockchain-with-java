@@ -1,0 +1,143 @@
+package blockchain;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.*;
+
+class Block {
+    public long generationTime;
+    private int id;
+    private long timestamp;
+    private int magicNumber;
+    private String previousHash;
+    private String hash;
+    private int n;
+
+    public Block(int id, long timestamp, int magicNumber, String previousHash, long generationTime, int n) {
+        this.id = id;
+        this.timestamp = timestamp;
+        this.magicNumber = magicNumber;
+        this.previousHash = previousHash;
+        this.n = n;
+        this.hash = generateHash();
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public String getHash() {
+        return hash;
+    }
+
+    public long getGenerationTime() {
+        return generationTime;
+    }
+
+    public int getN() {
+        return n;
+    }
+
+    private String generateHash() {
+        String data = id + timestamp + magicNumber + previousHash + n + generationTime;
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = digest.digest(data.getBytes());
+            StringBuilder hexString = new StringBuilder();
+
+            for (byte hashByte : hashBytes) {
+                String hex = Integer.toHexString(0xff & hashByte);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        return "";
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Block:\nCreated by miner # %d\nId: %d\nTimestamp: %d\nMagic number: %d\nHash of the previous block:\n%s\nHash of the block:\n%s\nBlock was generating for %d seconds\nN was %s to %d\n",
+                magicNumber % 10, id, timestamp, magicNumber, previousHash, hash, generationTime / 1000, n > 0 ? "increased" : n < 0 ? "decreased" : "stays the same", Math.abs(n));
+    }
+
+
+    static class Blockchain {
+        private List<Block> blocks = new ArrayList<>();
+        private int n = 0;
+
+        public void addBlock(Block block) {
+            blocks.add(block);
+            System.out.println(block);
+            if (blocks.size() < 5) {
+                adjustDifficulty();
+                mineBlock();
+            }
+        }
+
+        private void adjustDifficulty() {
+            long lastGenerationTime = blocks.get(blocks.size() - 1).getGenerationTime();
+
+            if (lastGenerationTime < 1000) {
+                n++;
+                System.out.println("N was increased to " + n);
+            } else if (lastGenerationTime > 60000) {
+                n--;
+                System.out.println("N was decreased by 1");
+            } else {
+                System.out.println("N stays the same");
+            }
+        }
+
+        private void mineBlock() {
+            ExecutorService executorService = Executors.newFixedThreadPool(10);
+            List<Callable<Block>> tasks = new ArrayList<>();
+
+            for (int i = 0; i < 10; i++) {
+                final int minerId = i + 1;
+                tasks.add(() -> {
+                    long startTime = System.currentTimeMillis();
+                    Random random = new Random();
+                    int magicNumber;
+                    do {
+                        magicNumber = random.nextInt();
+                    } while (!isValidHash(magicNumber));
+
+                    long endTime = System.currentTimeMillis();
+                    Block block = new Block(blocks.size() + 1, endTime, magicNumber, blocks.get(blocks.size() - 1).getHash(), 1, n);
+                    block.generationTime = endTime - startTime;
+                    return block;
+                });
+            }
+
+            try {
+                Block minedBlock = executorService.invokeAny(tasks);
+                executorService.shutdown();
+                addBlock(minedBlock);
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+
+        private boolean isValidHash(int magicNumber) {
+            String hash = new Block(blocks.size() + 1, System.currentTimeMillis(), magicNumber, blocks.get(blocks.size() - 1).getHash(), 1, n).getHash();
+            return hash.startsWith("0".repeat(Math.max(0, n)));
+        }
+    }
+
+    public static class Main {
+        private Blockchain blockchain = new Blockchain();
+
+        public static void main(String[] args) {
+            Main ma = new Main();
+            ma.blockchain.addBlock(new Block(0, System.currentTimeMillis(), 0, "0", 1, 0));
+        }
+    }
+}
+

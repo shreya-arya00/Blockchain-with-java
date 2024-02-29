@@ -1,0 +1,178 @@
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+class Block {
+    int id;
+    String hash;
+    String previousHash;
+    int N;
+    long timestamp;
+    int magicNumber;
+    int generationTimeSeconds;
+
+    Block(int id, String previousHash, int N) {
+        this.id = id;
+        this.previousHash = previousHash;
+        this.N = N;
+        this.timestamp = System.currentTimeMillis();
+        this.magicNumber = mineBlock();
+    }
+
+    private int mineBlock() {
+        String prefix = "0".repeat(N);
+        int magicNumber = 0;
+        String hash;
+
+        do {
+            magicNumber++;
+            hash = calculateHash();
+        } while (!hash.startsWith(prefix));
+
+        return magicNumber;
+    }
+
+    String calculateHash() {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String data = id + timestamp + previousHash + N + magicNumber;
+            byte[] hashBytes = digest.digest(data.getBytes());
+            StringBuilder hexHash = new StringBuilder();
+
+            for (byte hashByte : hashBytes) {
+                String hex = Integer.toHexString(0xff & hashByte);
+                if (hex.length() == 1) hexHash.append('0');
+                hexHash.append(hex);
+            }
+
+            return hexHash.toString();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    void printBlockInfo() {
+        System.out.println("Block:");
+        System.out.println("Id: " + id);
+        System.out.println("Timestamp: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(timestamp)));
+        System.out.println("Magic number: " + magicNumber);
+        System.out.println("Hash of the previous block: " + previousHash);
+        System.out.println("Hash of the block: " + hash);
+        System.out.println("Block was generating for " + generationTimeSeconds + " seconds");
+        System.out.println("N was " + (generationTimeSeconds < 60 ? "increased" : "decreased") + " to " + (generationTimeSeconds < 60 ? N + 1 : N - 1));
+        System.out.println();
+    }
+}
+
+class Blockchain {
+    private List<Block> blocks;
+    private AtomicInteger N;
+
+    Blockchain() {
+        blocks = new ArrayList<>();
+        N = new AtomicInteger(0);
+        blocks.add(createGenesisBlock());
+    }
+
+    private Block createGenesisBlock() {
+        return new Block(0, "0", 0);
+    }
+
+    Block getLastBlock() {
+        return blocks.get(blocks.size() - 1);
+    }
+
+    boolean addBlock(Block block) {
+        if (isValidBlock(block)) {
+            blocks.add(block);
+            if (block.generationTimeSeconds < 60) {
+                N.incrementAndGet();
+            } else if (block.generationTimeSeconds > 60) {
+                N.decrementAndGet();
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isValidBlock(Block block) {
+        Block lastBlock = getLastBlock();
+        return block.id == lastBlock.id + 1
+                && block.previousHash.equals(lastBlock.hash)
+                && block.hash.startsWith("0".repeat(N.get()));
+    }
+}
+
+class Miner implements Runnable {
+    private static final int MAX_MINING_TIME = 60;
+    private static final int MIN_MINING_TIME = 10;
+
+    private final String minerName;
+    private final Blockchain blockchain;
+    private final ExecutorService executorService;
+
+    Miner(String minerName, Blockchain blockchain) {
+        this.minerName = minerName;
+        this.blockchain = blockchain;
+        this.executorService = Executors.newSingleThreadExecutor();
+    }
+
+    @Override
+    public void run() {
+        try {
+            while (blockchain.getLastBlock().id < 5) {
+                long startTime = System.currentTimeMillis();
+                Block newBlock = mineNewBlock();
+                long endTime = System.currentTimeMillis();
+                newBlock.generationTimeSeconds = (int) ((endTime - startTime) / 1000);
+                blockchain.addBlock(newBlock);
+
+                TimeUnit.SECONDS.sleep(1); // Add some delay for better visibility
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            executorService.shutdown();
+        }
+    }
+
+    private Block mineNewBlock() {
+        return executorService.submit(() -> {
+            Block lastBlock = blockchain.getLastBlock();
+            return new Block(lastBlock.id + 1, lastBlock.hash, blockchain.getLastBlock().N);
+        }).join();
+    }
+}
+
+public class MinerMania {
+    public static void main(String[] args) {
+        Blockchain blockchain = new Blockchain();
+        List<Thread> minerThreads = new ArrayList<>();
+
+        for (int i = 1; i <= 10; i++) {
+            Miner miner = new Miner("miner" + i, blockchain);
+            Thread minerThread = new Thread(miner);
+            minerThreads.add(minerThread);
+            minerThread.start();
+        }
+
+        for (Thread minerThread : minerThreads) {
+            try {
+                minerThread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Print information about the first five blocks
+        for (int i = 0; i < 5; i++) {
+            blockchain.blocks.get(i).printBlockInfo();
+        }
+    }
+}
