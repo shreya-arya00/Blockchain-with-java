@@ -1,0 +1,181 @@
+import java.security.*;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+
+class Message {
+    String sender;
+    String content;
+    String signature;
+    int id;
+    String publicKey;
+
+    Message(String sender, String content, String signature, int id, String publicKey) {
+        this.sender = sender;
+        this.content = content;
+        this.signature = signature;
+        this.id = id;
+        this.publicKey = publicKey;
+    }
+
+    @Override
+    public String toString() {
+        return sender + ": " + content;
+    }
+}
+
+class ChatBlock extends Block {
+    List<Message> messages;
+    private int uniqueIdentifier;
+    private KeyPair keyPair;
+
+    ChatBlock(int id, int magicNumber, String previousHash, int N, KeyPair keyPair) {
+        super(id, magicNumber, previousHash, N);
+        this.messages = new ArrayList<>();
+        this.keyPair = keyPair;
+        this.uniqueIdentifier = 0;
+    }
+
+    void addMessage(String sender, String content) {
+        String messageContent = sender + ": " + content;
+        String signature = signMessage(messageContent, keyPair.getPrivate());
+        Message message = new Message(sender, content, signature, ++uniqueIdentifier, Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+        messages.add(message);
+    }
+
+    private String signMessage(String message, PrivateKey privateKey) {
+        try {
+            Signature privateSignature = Signature.getInstance("SHA256withRSA");
+            privateSignature.initSign(privateKey);
+            privateSignature.update(message.getBytes());
+            byte[] signature = privateSignature.sign();
+            return Base64.getEncoder().encodeToString(signature);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private boolean verifySignature(String message, String signature, PublicKey publicKey) {
+        try {
+            Signature publicSignature = Signature.getInstance("SHA256withRSA");
+            publicSignature.initVerify(publicKey);
+            publicSignature.update(message.getBytes());
+            byte[] signatureBytes = Base64.getDecoder().decode(signature);
+            return publicSignature.verify(signatureBytes);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    boolean isValid() {
+        if (!super.isValid()) {
+            return false;
+        }
+
+        int maxId = 0;
+
+        for (Message message : messages) {
+            if (message.id <= maxId || !verifySignature(message.sender + ": " + message.content, message.signature, getPublicKeyFromString(message.publicKey))) {
+                return false;
+            }
+
+            maxId = message.id;
+        }
+
+        return true;
+    }
+
+    private PublicKey getPublicKeyFromString(String publicKey) {
+        try {
+            byte[] keyBytes = Base64.getDecoder().decode(publicKey);
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            return keyFactory.generatePublic(keySpec);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+}
+
+class Blockchain {
+    List<Block> blocks;
+
+    Blockchain() {
+        blocks = new ArrayList<>();
+        // Genesis block
+        KeyPair keyPair = generateKeyPair();
+        blocks.add(new ChatBlock(0, 0, "0", 0, keyPair));
+    }
+
+    void addMessage(String sender, String content) {
+        ChatBlock currentBlock = (ChatBlock) blocks.get(blocks.size() - 1);
+        currentBlock.addMessage(sender, content);
+    }
+
+    private KeyPair generateKeyPair() {
+        try {
+            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+            keyPairGenerator.initialize(2048);
+            return keyPairGenerator.generateKeyPair();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private int getNextId() {
+        return blocks.get(blocks.size() - 1).id + 1;
+    }
+
+    void addBlock(int minerId, int N) {
+        KeyPair keyPair = generateKeyPair();
+        ChatBlock previousBlock = (ChatBlock) blocks.get(blocks.size() - 1);
+        ChatBlock newBlock = new ChatBlock(getNextId(), getRandomMagicNumber(), previousBlock.hash, N, keyPair);
+        newBlock.messages.addAll(previousBlock.messages);
+        blocks.add(newBlock);
+        System.out.println(newBlock);
+
+        if (blocks.size() < 6) {
+            System.out.println();
+        }
+    }
+}
+
+public class SecureBlockchainChat {
+    public static void main(String[] args) {
+        Blockchain blockchain = new Blockchain();
+        List<Thread> minerThreads = new ArrayList<>();
+
+        // Create and start 10 miner threads
+        for (int i = 0; i < 10; i++) {
+            Miner miner = new Miner(i + 1, blockchain);
+            Thread minerThread = new Thread(miner);
+            minerThreads.add(minerThread);
+            minerThread.start();
+        }
+
+        // Simulate users sending messages
+        blockchain.addMessage("Tom", "Hey, I'm first!");
+        blockchain.addMessage("Tom", "Hey, I'm second also!");
+        blockchain.addMessage("Sarah", "It's not fair!");
+        blockchain.addMessage("Sarah", "You always will be first because it is your blockchain!");
+        blockchain.addMessage("Sarah", "Anyway, thank you for this amazing chat.");
+        blockchain.addMessage("Tom", "You're welcome :)");
+        blockchain.addMessage("Nick", "Hey Tom, nice chat");
+
+        // Wait for all miner threads to finish
+        for (Thread minerThread : minerThreads) {
+            try {
+                minerThread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}

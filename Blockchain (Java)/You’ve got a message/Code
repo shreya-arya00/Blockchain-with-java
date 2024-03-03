@@ -1,0 +1,76 @@
+import java.util.ArrayList;
+import java.util.List;
+
+class Message {
+    String sender;
+    String content;
+
+    Message(String sender, String content) {
+        this.sender = sender;
+        this.content = content;
+    }
+
+    @Override
+    public String toString() {
+        return sender + ": " + content;
+    }
+}
+
+class ChatBlock extends Block {
+    List<Message> messages;
+
+    ChatBlock(int id, int magicNumber, String previousHash, int N) {
+        super(id, magicNumber, previousHash, N);
+        this.messages = new ArrayList<>();
+    }
+
+    void addMessage(String sender, String content) {
+        messages.add(new Message(sender, content));
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder blockInfo = new StringBuilder(super.toString());
+        if (messages.isEmpty()) {
+            blockInfo.append("Block data: no messages\n");
+        } else {
+            blockInfo.append("Block data:\n");
+            for (Message message : messages) {
+                blockInfo.append(message.toString()).append("\n");
+            }
+        }
+        return blockInfo.toString();
+    }
+}
+
+public class BlockchainChat {
+    public static void main(String[] args) {
+        Blockchain blockchain = new Blockchain();
+        List<Thread> minerThreads = new ArrayList<>();
+
+        // Create and start 10 miner threads
+        for (int i = 0; i < 10; i++) {
+            Miner miner = new Miner(i + 1, blockchain);
+            Thread minerThread = new Thread(miner);
+            minerThreads.add(minerThread);
+            minerThread.start();
+        }
+
+        // Simulate users sending messages
+        blockchain.addMessage("Tom", "Hey, I'm first!");
+        blockchain.addMessage("Sarah", "It's not fair!");
+        blockchain.addMessage("Sarah", "You always will be first because it is your blockchain!");
+        blockchain.addMessage("Sarah", "Anyway, thank you for this amazing chat.");
+        blockchain.addMessage("Tom", "You're welcome :)");
+        blockchain.addMessage("Nick", "Hey Tom, nice chat");
+
+        // Wait for all miner threads to finish
+        for (Thread minerThread : minerThreads) {
+            try {
+                minerThread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
